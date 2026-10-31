@@ -1,0 +1,15 @@
+# Build output
+build/
+out/
+cmake-build-*/
+
+# Editor and OS
+.vscode/
+.idea/
+.cache/
+.DS_Store
+compile_commands.json
+
+# Env
+.env*
+!.env.example
