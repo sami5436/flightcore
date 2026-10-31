@@ -1,215 +1,313 @@
 # Milestone 0: Project Setup
 
-Milestone 0 sets up the build, test and CI foundation for the flight code. It has no flight logic
-yet. The goal is that every line written from Milestone 1 on is compiled with strict warnings,
-tested, and checked for memory errors and data races automatically.
+## The big picture
 
-On real flight software teams this setup comes first. Later in a project it is expensive to add,
-because existing code must first be fixed for every new warning or sanitizer report.
+**What we did:** we wrote zero flight code. Instead we built the workshop the flight code will be
+built in.
 
-## Directory layout
+**Analogy:** before a company builds an aircraft, it sets up the factory: the assembly line, the
+inspection stations, the test bench, the quality inspector. Nobody bolts parts together in an
+empty parking lot. Milestone 0 is that factory.
+
+**Why it matters:** from now on, every line you write gets checked automatically. Mistakes are
+caught in seconds on your laptop, not weeks later in integration. Adding checks later is painful,
+because you first have to fix all the old code that fails them. That's why real flight software
+teams set this up first.
+
+Here is what happens to your code once it is written:
+
+```
+ you write code
+      |
+      v
+ 1. BUILD      compiler turns code into a program   (strict: any warning = stop)
+      |
+      v
+ 2. TEST       small programs check your code works  (GoogleTest)
+      |
+      v
+ 3. SANITIZE   run again with "watchdogs" on         (catch memory bugs and race conditions)
+      |
+      v
+ 4. CI         GitHub repeats steps 1 to 3 on clean machines, every push
+```
+
+Each section below is one station in that factory.
+
+---
+
+## 1. Folder layout: where things live
 
 ```
 flightcore/
-├── CMakeLists.txt          top-level build definition
-├── CMakePresets.json       named build configurations (debug, release, asan, tsan)
-├── cmake/
-│   ├── Warnings.cmake      strict compiler warnings, as errors
-│   └── Sanitizers.cmake    ASan/UBSan and TSan switches
-├── include/fc/core/        public headers  (what other code #includes)
-├── src/core/               implementation  (.cpp files)
-├── tests/                  GoogleTest unit tests, mirroring src/
-├── docs/                   milestone write-ups like this one
-├── .clang-format           code style
-├── .clang-tidy             static analysis rules
-├── .github/workflows/      CI pipeline
-├── README.md               public description
-└── CLAUDE.md               working rules for our pairing sessions
+├── include/fc/core/   headers: WHAT the code offers
+├── src/core/          .cpp files: HOW it works inside
+├── tests/             tests that check src/ does what include/ promises
+├── cmake/             build helper files
+├── docs/              these write-ups
+└── .github/workflows/ the CI robot's instructions
 ```
 
-**Why `include/fc/core/` and not just `include/`?** Includes look like
-`#include "fc/core/version.hpp"`. The `fc/` prefix acts like a namespace for headers, so the
-header never collides with another library's `version.hpp`. Each module (core, bus, sched, gnc)
-gets its own folder, and the C++ namespaces match: `fc::core`, `fc::bus`, and so on.
+**Analogy:** you already know this from defense work. A header is the **ICD (interface control
+document)** for a box: the connectors, the signals, what goes in and what comes out. The `.cpp`
+file is the **inside of the box**: the circuit boards. Whoever integrates the box reads the ICD
+and never needs to open it up.
 
-**Why separate `include/` and `src/`?** Headers in `include/` are the public interface, like the
-public section of a class. Files in `src/` are the implementation. Anything that uses the library
-sees only the interface.
+**Why it matters:** other code depends only on the interface. You can rewrite the inside (make it
+faster, fix a bug) and nobody else has to change. That's what lets a big team work in parallel.
 
-## CMake: `CMakeLists.txt`
+**Why `include/fc/core/` instead of just `include/`?** So the include reads
+`#include "fc/core/version.hpp"`. The `fc/` part works like a last name. There could be a hundred
+files called `version.hpp` in the world, but only one `fc/core/version.hpp`.
 
-CMake does not compile code itself. It generates build files (here, Ninja files) that call the
-compiler. Think of it as a generator for a large, correct Makefile.
+---
+
+## 2. CMake: the build planner
+
+**What it is:** CMake reads `CMakeLists.txt` and works out which files to compile, with which
+settings, in which order. Then a tool called **Ninja** carries out that plan by running the
+compiler.
+
+**Analogy:** CMake is the **planner who writes the work orders**. Ninja is the **crew that does
+the work**. The compiler (clang) is the **power tool** the crew uses.
+
+**Why it matters:** with 3 files you could type the compile command by hand. With 300 files,
+plus settings that change for debug vs release vs sanitizers, you can't. CMake also only rebuilds
+what changed, the same way a crew only redoes the part of a job that changed.
+
+### The key lines
 
 ```cmake
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)   # fail instead of silently falling back to C++17
-set(CMAKE_CXX_EXTENSIONS OFF)         # -std=c++20, not -std=gnu++20 (no compiler extensions)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # writes compile_commands.json for clangd / clang-tidy
+set(CMAKE_CXX_STANDARD 20)             # use C++20
+set(CMAKE_CXX_STANDARD_REQUIRED ON)    # if the compiler can't do C++20, stop, don't fake it
+set(CMAKE_CXX_EXTENSIONS OFF)          # standard C++ only, no compiler-specific extras
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # write a file that tells editors how we build (section 9)
 ```
 
-### Targets, the core idea of modern CMake
+### Targets: one part number per thing you build
 
 ```cmake
 add_library(fc_core src/core/version.cpp)
-add_library(fc::core ALIAS fc_core)
-target_include_directories(fc_core PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_include_directories(fc_core PUBLIC ...include)
 ```
 
-A **target** is like a class. It owns its sources, include paths, flags and dependencies.
-`PUBLIC` vs `PRIVATE` works the way it does in C++ inheritance:
+**Analogy:** a **target** is a **part number** in a bill of materials. `fc_core` is a part (our
+library). `fc_tests` is another part (the test program) that uses `fc_core`.
 
-- `PRIVATE`: used only to build this target (example: warning flags).
-- `PUBLIC`: used by this target **and passed on** to anything that links it (example: the include
-  directory, so the tests can `#include "fc/core/..."` without setting it again).
-- `INTERFACE`: passed on only, not used by the target itself.
+**PUBLIC vs PRIVATE** controls what gets passed on to whoever uses the part:
 
-The `fc::core` alias exists because a typo in a `::` name is a hard configure error, while a typo
-in a plain name can be silently treated as a system library. The `$<BUILD_INTERFACE:...>`
-wrapper is a generator expression: the path applies only while building from source, not after an
-install.
+- **PRIVATE** = the **tools used to build the part**. The welding torch stays in the factory, so
+  the customer never sees it. Example: our strict warning flags.
+- **PUBLIC** = the **mounting spec and connectors that ship with the part**. Anyone who uses it
+  needs them too. Example: the `include/` folder, so the tests can find our headers automatically.
 
-`FC_VERSION_STRING` is passed from `project(VERSION 0.1.0)` into C++ as a `#define`, so the
-version lives in exactly one place.
+**Why it matters:** each part carries its own requirements. When the tests say "I use `fc_core`",
+they get the right include folder for free, and nobody has to copy settings around.
 
-## Warnings: `cmake/Warnings.cmake`
+### The `fc::core` alias
 
-Every warning is an error (`-Werror`). Flight code does not ship with warnings, and in safety
-standards like DO-178C a warning is a finding you have to justify. The important flags:
+`add_library(fc::core ALIAS fc_core)` gives the part a second name with `::` in it.
 
-| Flag | Catches |
-|------|---------|
-| `-Wall -Wextra -Wpedantic` | the standard set, plus non-portable extensions |
-| `-Wshadow` | a local variable hiding a member or outer variable |
-| `-Wconversion -Wsign-conversion` | silent narrowing, like `double` to `int` or `int` to `size_t` |
-| `-Wold-style-cast` | C-style casts; use `static_cast` and friends |
-| `-Wnon-virtual-dtor` | a polymorphic base class without a virtual destructor (leaks, UB) |
-| `-Woverloaded-virtual` | a derived function hiding a base virtual instead of overriding it |
-| `-Wnull-dereference` | paths where the compiler can prove a null deref |
-| `-Wdouble-promotion` | `float` silently promoted to `double` (costly on embedded FPUs) |
-| `-Wimplicit-fallthrough` | a `switch` case falling into the next without `[[fallthrough]]` |
+**Analogy:** like a part number with a **check digit**. If you mistype a plain name, CMake may
+quietly assume it's some system library and fail in a confusing way later. If you mistype a `::`
+name, CMake stops right away and says "no such part."
 
-`-Wconversion` will be the most annoying one, and the most valuable. Numeric conversion bugs are
-a classic aerospace failure mode: Ariane 5 Flight 501 was lost to an unchecked 64-bit float to
-16-bit integer conversion.
+### One place for the version
 
-The function is applied per target (`fc_set_warnings(fc_core)`), so third-party code like
-GoogleTest is not held to our rules.
+`project(VERSION 0.1.0)` is the only place the version number is written. CMake hands it to the
+C++ code. **Why:** if a number is written in two places, one day they'll disagree.
 
-## Sanitizers: `cmake/Sanitizers.cmake`
+---
 
-Sanitizers are compiler instrumentation that check your program **while it runs**.
+## 3. Warnings as errors: the pre-flight checklist
 
-- **ASan (AddressSanitizer)**: out-of-bounds reads/writes, use-after-free, double free, leaks.
-- **UBSan (UndefinedBehaviorSanitizer)**: signed overflow, misaligned access, bad shifts, invalid
-  enum values. Bundled with ASan here.
-- **TSan (ThreadSanitizer)**: data races, meaning two threads touching the same memory, at least
-  one writing, with no synchronization. This is the one that matters most for this project.
+**What it is:** the compiler can warn about code that is legal but suspicious. We turned on many
+warnings and made every one a hard error (`-Werror`). If there's a warning, the build fails.
 
-ASan and TSan cannot run in the same binary (both remap memory), so each gets its own build.
-`-fno-sanitize-recover=all` makes UBSan stop at the first error instead of printing and
-continuing, so a test cannot pass while UB happened. `-fno-omit-frame-pointer` keeps stack traces
-readable.
+**Analogy:** a **pre-flight checklist where any amber light means no-go**. A warning light on a
+dashboard is easy to ignore, until you have 40 of them and miss the one that matters. With zero
+allowed, every new warning is impossible to miss.
 
-Selecting one: `-DFC_SANITIZER=address` or `-DFC_SANITIZER=thread`. You normally go through a
-preset instead.
+**Why it matters:** in certified flight software (DO-178C, the avionics software standard) every
+warning is something you'd have to explain in writing. Teams just fix them.
 
-## Presets: `CMakePresets.json`
+The ones you'll run into most:
 
-Presets name the configurations so nobody has to remember the flags:
+| Warning | Plain meaning | Example it catches |
+|---------|---------------|--------------------|
+| `-Wconversion` | "you're squeezing a big number into a small box" | `int x = 3.7;` silently becomes 3 |
+| `-Wsign-conversion` | "you're mixing negative-capable and positive-only numbers" | `-1` turning into 4 billion |
+| `-Wshadow` | "two variables have the same name, and one hides the other" | a local `speed` hiding the member `speed` |
+| `-Wold-style-cast` | "use a C++ cast so the intent is clear" | `(int)x` should be `static_cast<int>(x)` |
+| `-Wnon-virtual-dtor` | "this base class will leak if deleted through a base pointer" | missing `virtual ~Base()` |
+| `-Wdouble-promotion` | "you made a slow double out of a float without meaning to" | costly on small embedded chips |
 
-| Preset | Build type | Use it for |
-|--------|------------|------------|
-| `debug` | Debug | everyday work, debugger |
-| `release` | RelWithDebInfo | timing and benchmarks (optimized, but keeps symbols) |
-| `asan` | Debug + ASan/UBSan | memory and UB checks |
-| `tsan` | Debug + TSan | any threading change |
+**The famous story:** in 1996 the Ariane 5 rocket blew up 37 seconds after launch. A 64-bit
+floating-point number was converted to a 16-bit integer, the value was too big to fit, and the
+guidance software crashed. That's exactly the kind of bug `-Wconversion` exists to flag.
 
-Each builds into its own folder (`build/debug`, `build/tsan`, ...), so switching costs nothing.
+**Why only our code?** The warnings apply per target, so GoogleTest (someone else's code) isn't
+held to our rules. We only hold our own parts to our standard.
+
+---
+
+## 4. Sanitizers: watchdogs while the program runs
+
+The compiler checks your code **before** it runs. Sanitizers check it **while** it runs. The
+compiler adds extra checking code around every memory access and every thread operation.
+
+| Sanitizer | Analogy | Catches |
+|-----------|---------|---------|
+| **ASan** (Address) | a **security guard on every fence**. Step outside your memory, an alarm goes off | reading past the end of an array, using memory after `delete`, deleting twice, leaks |
+| **UBSan** (Undefined Behavior) | a **referee** for the C++ rulebook | integer overflow, bad shifts, misaligned pointers |
+| **TSan** (Thread) | a **traffic camera at an intersection with no traffic light** | two threads touching the same variable at the same time, one of them writing (a "data race") |
+
+**Why TSan is the big one for us:** this whole project is about threads. Data races are the worst
+kind of bug: the code works 999 times, then fails once in the field, and you can't reproduce it.
+TSan catches the race **even on runs where nothing visibly went wrong**.
+
+**Why ASan and TSan need separate builds:** each one reorganizes how the program's memory is laid
+out so it can watch it. Two guards can't both rearrange the same warehouse their own way, so each
+gets its own build.
+
+**Two extra flags:**
+- `-fno-sanitize-recover=all`: stop at the first problem. Otherwise a test could print a warning
+  and still pass.
+- `-fno-omit-frame-pointer`: keeps the "how did we get here" trail (the stack trace) readable.
+
+---
+
+## 5. Presets: saved driver settings
+
+**What they are:** `CMakePresets.json` gives a name to each set of build settings.
+
+**Analogy:** the **memory seat buttons** in a car. Press 1 and the seat, mirrors and steering
+wheel all move to your settings. You don't adjust each one by hand.
+
+| Preset | Analogy | Use it when |
+|--------|---------|-------------|
+| `debug` | car in the garage, hood open, diagnostic cable plugged in | everyday coding, stepping through in a debugger |
+| `release` | car on the race track, fully tuned | measuring speed and timing |
+| `asan` | car on a test track with a safety inspector riding along | checking for memory bugs |
+| `tsan` | the same, but the inspector watches traffic | any time you touch threads |
+
+Each preset builds into its own folder (`build/debug`, `build/tsan`, ...). **Analogy:** separate
+workbenches. Switching between them doesn't mean clearing off and setting up again.
 
 ```
-cmake --preset tsan          # configure
-cmake --build --preset tsan  # compile
-ctest --preset tsan          # run tests
+cmake --preset tsan          # plan the build
+cmake --build --preset tsan  # do the build
+ctest --preset tsan          # run the tests
 ```
 
-## Tests: `tests/`
+---
 
-GoogleTest is downloaded at configure time with `FetchContent`, pinned to tag `v1.15.2`. Pinning
-matters: an unpinned dependency means the same commit can build differently next month.
+## 6. Tests: the test bench
 
-```cmake
-add_executable(fc_tests core/test_version.cpp)
-target_link_libraries(fc_tests PRIVATE fc::core GTest::gtest_main)
-gtest_discover_tests(fc_tests)
-```
+**What it is:** GoogleTest is a library for writing small programs that check your code. Right
+now there's one test. It checks that `version()` returns `"0.1.0"`.
 
-`gtest_main` provides `main()`. `gtest_discover_tests` asks the test binary which `TEST()`s it
-contains and registers each one with CTest separately, so failures are reported per test.
+**Analogy:** an **acceptance test procedure (ATP)** on a test bench. Before a box ships, you run
+the procedure: apply known inputs, check for the expected outputs, record pass or fail.
 
-The one test today (`Version.MatchesProjectVersion`) is only a smoke test. It proves the library
-builds, links, and runs under every preset.
+**Why such a silly first test?** It's a **smoke test**: power the box on and make sure no smoke
+comes out. It proves the library builds, links and runs under every preset. The real tests start
+in Milestone 1.
 
-## Code style and static analysis
+**Two details:**
+- **Pinned version (`v1.15.2`).** GoogleTest is downloaded automatically, always the exact same
+  version. **Analogy:** test equipment with a known calibration. If the tool can change under you,
+  a pass today and a fail tomorrow tell you nothing. In defense terms, this is configuration
+  management.
+- **`gtest_discover_tests`** lists every test separately in the report. **Analogy:** a test report
+  with one line per requirement, instead of a single "box passed" stamp.
 
-- **`.clang-format`**: Google style, 100-column lines. Formatting is never discussed in review;
-  the tool decides. Run `clang-format -i <file>` before committing.
-- **`.clang-tidy`**: static analysis, meaning it finds bugs by reading code instead of running it.
-  Enabled groups: `bugprone`, `concurrency`, `cppcoreguidelines`, `modernize`, `performance`,
-  `readability`. A few noisy checks are turned off (magic numbers, short names, trailing return
-  types). It runs in CI.
+---
 
-## CI: `.github/workflows/ci.yml`
+## 7. Formatting and static analysis: the style robot and the blueprint inspector
 
-On every push to `main` and every pull request, GitHub Actions runs:
+- **clang-format** automatically formats the code (spacing, line breaks, include order).
+  **Analogy:** an auto-formatter for documents. **Why:** code reviews never argue about spacing,
+  because the robot decides. Run `clang-format -i file.cpp` before you commit.
 
-1. **build-test**: a matrix of 2 OSes (Ubuntu 24.04, macOS 15) x 4 presets = 8 jobs. Each
-   configures, builds, and runs all tests. `fail-fast: false` lets every job finish, so one
-   failure does not hide others.
-2. **lint**: clang-format in check mode (fails on unformatted code) and clang-tidy.
+- **clang-tidy** reads the code and looks for known bug patterns. **Analogy:** an inspector
+  **reviewing the blueprints** before anything is built. Sanitizers are the opposite: they watch
+  the **test flight**. The two catch different things, so we use both.
 
-Linux is the main target because real-time Linux (PREEMPT_RT) is where we will measure jitter
-later. macOS keeps the code portable and matches the dev machine.
+---
 
-## Local setup details
+## 8. CI: the independent inspector
 
-- **`compile_commands.json`** at the repo root is a symlink to `build/debug/compile_commands.json`
-  (gitignored, local only). clangd in vim reads it to know the exact flags, so completions and
-  errors match the real build.
-- **Git identity**: commits use the GitHub noreply email so no personal email appears in history.
-- **`.gitignore`**: build output, editor folders, and `.env*` files (in case secrets ever appear).
+**What it is:** every time you push to GitHub, GitHub Actions starts fresh machines, downloads
+your code, and runs everything: build, tests, sanitizers, formatting check, clang-tidy.
 
-## Commits so far
+**Analogy:** an **independent QA inspector** who wasn't in the room when you built it, rebuilds
+it from scratch, and tests it. That kills the classic excuse "it works on my machine."
 
-1. CMake build skeleton with `fc_core` library and GoogleTest
-2. CMake presets
-3. clang-format and clang-tidy configs
-4. CI workflow
-5. README
-6. CLAUDE.md
+**The matrix:** 2 operating systems (Linux, macOS) x 4 presets = 8 jobs, plus 1 lint job.
+**Analogy:** testing on two aircraft types in four configurations each.
 
-Each is one logical change, so history reads like a changelog and any commit can be reverted
-cleanly.
+**Why Linux?** Real-time Linux is where we'll measure timing precision later. **Why macOS?** It's
+what you develop on, and passing on both proves the code isn't tied to one system.
 
-## Try it yourself
+That green check mark on GitHub is visible proof to anyone who looks at the repo, recruiters
+included, that the code builds and passes.
 
-These take a few minutes each and show why the setup is worth it:
+---
 
-1. **Warnings as errors**: in `src/core/version.cpp`, add `int x = 3.7;` inside the function.
-   Build `debug` and read the error. Remove it.
-2. **ASan**: in a test, write `int a[3]; a[3] = 1;`. Run `ctest --preset debug` (likely passes),
-   then `ctest --preset asan` (fails with a stack trace). Remove it.
-3. **TSan**: in a test, start two `std::thread`s that each do `++counter` 100000 times on a plain
-   `int`. Run under `tsan` and read the race report. Change `int` to `std::atomic<int>` and run
-   it again.
+## 9. Small local details
 
-Exercise 3 is the preview of Milestone 1.
+- **`compile_commands.json`:** an instruction sheet listing exactly how each file is compiled.
+  Vim's code helper (clangd) reads it. **Analogy:** handing your assistant the build manual.
+  Without it, clangd guesses, which is why you saw fake red errors earlier. This file only exists
+  on your machine; it isn't in the repo.
+- **noreply commit email:** commits show a GitHub address instead of your personal email.
+  **Analogy:** a PO box instead of your home address on public mail.
+- **`.gitignore`:** a list of files git should never save (build output, editor files, secret
+  `.env` files). **Analogy:** a "do not ship" bin.
+- **Small commits:** each commit is one change. **Analogy:** logbook entries. Each one says what
+  changed and can be undone on its own.
 
-## Be ready to explain
+---
 
-- Why are warnings errors, and why are they applied per target?
-- Why can ASan and TSan not share a build?
-- What is the difference between `PUBLIC` and `PRIVATE` in `target_link_libraries`?
-- Why pin dependency versions?
-- Why does CI run on Linux and macOS?
+## Try it yourself (5 minutes each)
+
+1. **See a warning stop the build.**
+   In `src/core/version.cpp`, add `int x = 3.7;` inside the function. Run
+   `cmake --build --preset debug`.
+   *You should see:* an error about implicit conversion. Delete the line.
+
+2. **See ASan catch a memory bug.**
+   In `tests/core/test_version.cpp`, add a test with `int a[3]; a[3] = 1;` (index 3 is past the end).
+   Run `ctest --preset debug`. *It probably passes.* That's the scary part.
+   Run `ctest --preset asan`. *It fails* and points to the exact line. Delete the test.
+
+3. **See TSan catch a race condition.**
+   Write a test that starts two `std::thread`s. Each adds 1 to the same plain `int` 100000 times.
+   Run under `tsan`. *You should see:* "WARNING: ThreadSanitizer: data race".
+   Change `int` to `std::atomic<int>`. Run again. *It's clean.*
+   This is the warm-up for Milestone 1.
+
+---
+
+## Be ready to explain (with short answers)
+
+**Why are warnings errors?**
+So no warning is ever ignored. Zero allowed means every new one gets noticed and fixed.
+
+**Why can't ASan and TSan be in the same build?**
+Both reorganize the program's memory to watch it, in different ways that conflict.
+
+**What's the difference between PUBLIC and PRIVATE in CMake?**
+PRIVATE settings are only used to build this part. PUBLIC settings also get passed on to anything
+that uses the part.
+
+**Why pin dependency versions?**
+So the same code always builds the same way. A test result means nothing if the tools changed.
+
+**Why run CI on two operating systems?**
+To prove the code is portable and doesn't depend on one machine.
+
+**What's the difference between static analysis and a sanitizer?**
+Static analysis reads the code without running it (inspecting blueprints). A sanitizer watches the
+code while it runs (riding along on the test flight).
