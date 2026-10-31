@@ -7,10 +7,13 @@ RAII thread control, GNC sim, fault management. Learning and portfolio project.
 Sami and Claude pair program, swapping driver and navigator.
 - Claude drives: build system, CI, sim plumbing, boilerplate.
 - Sami drives: core pieces (RAII wrappers, ring buffer, scheduler loop). Claude writes the
-  interface and failing tests, Sami implements, Claude reviews. Do not write these for him
-  unless he asks.
+  interface and failing tests, Sami implements, Claude reviews. Do not write these for Sami
+  unless Sami asks.
 - Each milestone ends with Sami explaining the code back, interview style.
-- Sami edits in vim. Tell him which files changed so he can reload them.
+- Sami edits in vim. Tell Sami which files changed so they can be reloaded them.
+- Milestone docs live in `docs/milestoneN_<topic>.md`. Write them in plain language: for each
+  concept say what it is, give an everyday or defense/aerospace analogy, and say why it matters.
+  End with hands-on exercises and short-answer interview questions.
 
 ## Build, test
 ```
