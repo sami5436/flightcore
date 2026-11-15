@@ -15,10 +15,12 @@
 
 namespace fc::core {
 
+// The explicit defaults let callers name only the fields they set
+// ({.name = "gnc"}) without tripping GCC's -Wmissing-field-initializers.
 struct ThreadConfig {
-  std::string_view name;        // Copied. Empty means "leave the OS default name".
-  std::optional<int> priority;  // SCHED_FIFO priority. Unset means "leave as is".
-  std::optional<int> cpu_core;  // Core to pin to. Unset means "any core".
+  std::string_view name;                       // Copied. Empty means "leave the OS default name".
+  std::optional<int> priority = std::nullopt;  // SCHED_FIFO priority. Unset means "leave as is".
+  std::optional<int> cpu_core = std::nullopt;  // Core to pin to. Unset means "any core".
 };
 
 class Thread {

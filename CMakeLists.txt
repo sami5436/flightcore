@@ -38,6 +38,19 @@ target_include_directories(fc_core PUBLIC
 target_compile_definitions(fc_core PUBLIC
   FC_VERSION_STRING="${PROJECT_VERSION}")
 target_link_libraries(fc_core PUBLIC fc::osal)
+
+# Older libc++ (AppleClang 17 and earlier) still ships std::jthread and
+# std::stop_token as experimental. Turn them on only when needed.
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_FLAGS "-std=c++20")
+check_cxx_source_compiles(
+  "#include <thread>\nint main() { std::jthread t; return t.joinable() ? 1 : 0; }"
+  FC_HAS_JTHREAD)
+if(NOT FC_HAS_JTHREAD)
+  target_compile_options(fc_core PUBLIC -fexperimental-library)
+  target_link_options(fc_core PUBLIC -fexperimental-library)
+endif()
+unset(CMAKE_REQUIRED_FLAGS)
 fc_set_warnings(fc_core)
 
 if(FC_BUILD_TESTS)
