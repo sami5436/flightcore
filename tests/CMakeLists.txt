@@ -11,6 +11,7 @@ include(GoogleTest)
 add_executable(fc_tests
   core/test_version.cpp
   core/test_scoped_timer.cpp
+  core/test_thread.cpp
   osal/test_osal.cpp)
 target_link_libraries(fc_tests PRIVATE fc::core GTest::gtest_main)
 fc_set_warnings(fc_tests)

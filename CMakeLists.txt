@@ -30,7 +30,8 @@ fc_set_warnings(fc_osal)
 # Core library. Every milestone adds sources here.
 add_library(fc_core
   src/core/version.cpp
-  src/core/scoped_timer.cpp)
+  src/core/scoped_timer.cpp
+  src/core/thread.cpp)
 add_library(fc::core ALIAS fc_core)
 target_include_directories(fc_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
