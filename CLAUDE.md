@@ -3,17 +3,17 @@
 C++20 mini flight software framework: rate-group scheduler, lock-free software bus,
 RAII thread control, GNC sim, fault management. Learning and portfolio project.
 
-## Pairing mode
-Sami and Claude pair program, swapping driver and navigator.
-- Claude drives: build system, CI, sim plumbing, boilerplate.
-- Sami drives: core pieces (RAII wrappers, ring buffer, scheduler loop). Claude writes the
-  interface and failing tests, Sami implements, Claude reviews. Do not write these for Sami
-  unless Sami asks.
-- Each milestone ends with Sami explaining the code back, interview style.
-- Sami edits in vim. Tell Sami which files changed so they can be reloaded them.
-- Milestone docs live in `docs/milestoneN_<topic>.md`. Write them in plain language: for each
-  concept say what it is, give an everyday or defense/aerospace analogy, and say why it matters.
-  End with hands-on exercises and short-answer interview questions.
+## Working mode
+Claude builds, Sami learns from the docs.
+- Claude writes all the code, core pieces included, with tests. Do not hand Sami
+  implementation tasks or stop to quiz.
+- Each milestone ships as a branch and PR, with the milestone doc in the same PR. Claude merges
+  its own PRs once CI is green (merge commit, no squash or force-push).
+- Milestone docs live in `docs/milestoneN_<topic>.md` and walk through the real code with
+  snippets. Write them in plain language: for each concept say what it is, give an everyday or
+  defense/aerospace analogy, and say why it matters. End with hands-on exercises and
+  short-answer interview questions so Sami can explain the code back, interview style.
+- Sami reads code in vim. Tell Sami which files changed so they can reload them.
 
 ## Build, test
 ```
