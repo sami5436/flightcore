@@ -9,7 +9,8 @@ FetchContent_MakeAvailable(googletest)
 include(GoogleTest)
 
 add_executable(fc_tests
-  core/test_version.cpp)
+  core/test_version.cpp
+  osal/test_osal.cpp)
 target_link_libraries(fc_tests PRIVATE fc::core GTest::gtest_main)
 fc_set_warnings(fc_tests)
 gtest_discover_tests(fc_tests)

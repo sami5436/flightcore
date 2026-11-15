@@ -16,6 +16,17 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(Warnings)
 include(Sanitizers)
 
+find_package(Threads REQUIRED)
+
+# OS abstraction layer: the only code that calls pthreads directly.
+add_library(fc_osal
+  src/osal/osal.cpp)
+add_library(fc::osal ALIAS fc_osal)
+target_include_directories(fc_osal PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_link_libraries(fc_osal PUBLIC Threads::Threads)
+fc_set_warnings(fc_osal)
+
 # Core library. Every milestone adds sources here.
 add_library(fc_core
   src/core/version.cpp)
@@ -24,6 +35,7 @@ target_include_directories(fc_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_compile_definitions(fc_core PUBLIC
   FC_VERSION_STRING="${PROJECT_VERSION}")
+target_link_libraries(fc_core PUBLIC fc::osal)
 fc_set_warnings(fc_core)
 
 if(FC_BUILD_TESTS)
